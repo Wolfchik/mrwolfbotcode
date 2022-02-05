@@ -1,9 +1,9 @@
 import config
 import discord
-import keep_alive
 from discord.ext import commands
 from dislash import SlashClient, slash_command, Option, OptionType
 from typing_extensions import Required
+from PIL import Image, ImageFont, ImageDraw
 import youtube_dl
 import dislash
 import asyncio
@@ -16,7 +16,7 @@ import io
 import json
 from asyncio import sleep
 from async_timeout import timeout
-        
+
 
 # Silence useless bug reports messages
 youtube_dl.utils.bug_reports_message = lambda: ''
@@ -365,7 +365,7 @@ class Music(commands.Cog):
         """Изменить громкость. Возможные значения(0-200)"""
 
         if not volume:
-            return await ctx.reply('Ошибка: Пропушен обязательный аргумент volume(Громкость)\nПримерное использование:\nm!volume 35')
+            return await ctx.reply('Использование команды:\n`mwb!volume <Значение от 5-200>`')
 
         if not ctx.voice_state.is_playing:
             return await ctx.send('Сейчас музыка не играет. Можете включить.')
@@ -382,7 +382,7 @@ class Music(commands.Cog):
 
         await ctx.send(embed=ctx.voice_state.current.create_embed())
 
-    @commands.command(name='skip')
+    @commands.command(name='skip', aliases=["next"])
     async def _skip(self, ctx: commands.Context):
         """Проголосуйте за то, чтобы пропустить песню. Запрашивающий может автоматически пропустить.
  Для пропуска песни необходимо 3 пропущенных голоса.Если вы админ то песня скипнетса сразу же.
@@ -390,9 +390,6 @@ class Music(commands.Cog):
 
         if not ctx.voice_state.is_playing:
             return await ctx.send('Сейчас музыка не играет,зачем её пропускать? Можете включить.')
-
-        if len(ctx.voice_state.songs) == 0:
-            return await ctx.send('В очереди нет треков. Можете добавить.')
 
         if not ctx.voice_state.voice:
             await ctx.invoke(self._join)
@@ -439,7 +436,7 @@ class Music(commands.Cog):
         """Удалить песни из очереди по номеру.Использование:.remove <Какая песня по очереди>"""
 
         if not index:
-            return await ctx.reply('Ошибка: Пропушен обязательный аргумент index(Айди песни)\nПримерное использование:\nm!remove 1')
+            return await ctx.reply('Использование команды:\n`mwb!remove <Индекс>`')
 
         if len(ctx.voice_state.songs) == 0:
             return await ctx.send('В очереди нет треков. Можете добавить.')
@@ -463,7 +460,7 @@ class Music(commands.Cog):
     async def _play(self, ctx: commands.Context, *, search: str = None):
 
             if not search:
-                return await ctx.reply('Ошибка: Пропушен обязательный аргумент search(URL/Текст)\nПримерное использование:\nm!play lum!x slowed reverb')
+                return await ctx.reply('Использование команды:\n`mwb!play <Ссылка, или название>`')
 
             if not ctx.voice_state.voice:
                 await ctx.invoke(self._join)
@@ -497,7 +494,7 @@ class Music(commands.Cog):
                 #         await ctx.voice_state.songs.put(song2)
                 #         ctx.voice_state.skip()
 
-    @commands.command(name="re")
+    @commands.command(name="re", aliases=["replay"])
     async def _re(self, ctx: commands.Context):
         self.current = None
         msg = await ctx.reply(f'<a:ee98:921363226061598780> **{self.bot.user.name}** думает...')
@@ -538,19 +535,62 @@ class Main(commands.Cog):
 
     @commands.command(name="help")
     async def _help(self, ctx: commands.Context):
-        await ctx.reply(embed=discord.Embed(title="Список моих команд ", description="Всё разложено по полочкам :)\n**🎵Музыка**\n`mwb!play <search>` - Начать воспроизведение\n`mwb!skip` - Пропустить\n`mwb!queue` - Позырить очередь\n`mwb!leave` - Остановить музыку, и выйти\n`mwb!join` - Зайти к вам в канал\n`mwb!re` - Начать воспроизведение заново\n`mwb!remove <index>` - Удалить опред песню\n`mwb!np` - Посмотреть, что сейчас играет\n`mwb!volume <value>` - Изменить громкость, после измены не забудьте включить воспроизведение заново\n**🥇Модерация**\n`mwb!clear <amount>` - Очистить сообщения\n**📍 Утилиты**\n`mwb!quote` - Бот выдаст рандомную цитату"))
+        await ctx.reply(embed=discord.Embed(title="Список моих команд ", description="Всё разложено по полочкам :)\n**🎵Музыка**\n`mwb!play <search>` - Начать воспроизведение\n`mwb!skip` - Пропустить\n`mwb!queue` - Позырить очередь\n`mwb!leave` - Остановить музыку, и выйти\n`mwb!join` - Зайти к вам в канал\n`mwb!re` - Начать воспроизведение заново\n`mwb!remove <index>` - Удалить опред песню\n`mwb!np` - Посмотреть, что сейчас играет\n`mwb!volume <value>` - Изменить громкость, после измены не забудьте включить воспроизведение заново\n**🥇Модерация**\n`mwb!clear <amount>` - Очистить сообщения\n**📍 Утилиты**\n`mwb!quote` - Бот выдаст рандомную цитату\n`mwb!card` - Увидеть свою карточку"))
 
 class Moderation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @commands.command(name="clear")
+    @commands.bot_has_permissions(manage_messages=True)
+    @commands.has_permissions(manage_messages=True)
     async def _clear(self, ctx: commands.Context, amount=None):
         if not amount:
-            await ctx.reply("```py\nasync def _clear(self, ctx:commands.Context, amount```\nАргумент \"amount\" обязательно!")
+            await ctx.reply("Использование команды:\n`mwb!clear <кол-во>`")
         else:
             await ctx.channel.purge(limit=int(amount))
             await ctx.reply("✅ Успешно")
+
+    @commands.command(name="mute")
+    @commands.has_permissions(manage_messages=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def _mute(self, ctx: commands.Context, member: discord.Member = None):
+        if member == None:
+            await ctx.reply('Использование команды:\n`mwb!mute <@member>`')
+            return
+        guild = ctx.guild
+        mutedRole = discord.utils.get(guild.roles, name="MrWolfBot Mute")
+
+        if not mutedRole:
+            mutedRole = await guild.create_role(name="MrWolfBot Mute")
+
+            for channel in guild.channels:
+                await channel.set_permissions(mutedRole,
+                                            speak=False,
+                                            send_messages=False,
+                                            read_message_history=True,
+                                            read_messages=True)
+        embed = discord.Embed(
+            title=f"Успешно!",
+            description=f"{member.mention} теперь находиться в мьюте! ")
+        await ctx.send(embed=embed)
+        await member.add_roles(mutedRole)
+
+
+    @commands.command(name="unmute")
+    @commands.has_permissions(manage_messages=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def _unmute(self, ctx, member: discord.Member = None):
+        if member == None:
+            await ctx.reply('Использование команды:\n`mwb!unmute <@Member>`')
+            return
+        guild = ctx.guild
+        mutedRole = discord.utils.get(guild.roles, name="MrWolfBot Mute")
+        embed = discord.Embed(
+            description=f'С участника {member.mention} успешно сняты ограничения!')
+
+        await member.remove_roles(mutedRole)
+        await ctx.reply(embed=embed)
 
 class Utilits(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -561,6 +601,27 @@ class Utilits(commands.Cog):
         quotes = ["Все мы гении. Но если вы будете судить рыбу по её способности взбираться на дерево, она проживёт всю жизнь, считая себя дурой","Нужно иметь что-то общее, чтобы понимать друг друга, и чем-то отличаться, чтобы любить друг друга.","Несчастным или счастливым человека делают только его мысли, а не внешние обстоятельства. Управляя своими мыслями, он управляет своим счастьем.","Лучше молчать и показаться дураком, чем заговорить и развеять все сомнения.","Если тебе плюют в спину, значит ты впереди.","Уметь выносить одиночество и получать от него удовольствие — великий дар.","Жизнь как бумеранг..кинешь,не вернется...","Уважай себя настолько, чтобы не отдавать всех сил души и сердца тому, кому они не нужны...","Настоящий друг с тобой, когда ты не прав. Когда ты прав, всякий будет с тобой.","Проблема этого мира в том, что глупцы и фанатики слишком уверены в себе, а умные люди полны сомнений.","В шахматах это называется «цугцванг», когда оказывается, что самый полезный ход — никуда не двигаться.","Лучше быть одной, чем несчастной с кем-то.","Окружающим легко сказать: «Не принимай близко к сердцу». Откуда им знать, какова глубина твоего сердца? И где для него — близко?","— А где я могу найти кого-нибудь нормального?\n— Нигде, — ответил Кот, — нормальных не бывает. Ведь все такие разные и непохожие. И это, по-моему, нормально.","Мы не хозяева собственной жизни. Мы связаны с другими прошлым и настоящим. И каждый проступок, как и каждое доброе дело, рождают новое будущее.","Я не боюсь исчезнуть. Прежде, чем я родился, меня не было миллиарды и миллиарды лет, и я нисколько от этого не страдал.","Когда что-то понимаешь, то жить становится легче. А когда что-то почувствуешь — то тяжелее. Но почему-то всегда хочется почувствовать, а не понять!","Когда у тебя ничего нет, нечего и терять.","Хочешь, чтоб люди сочли тебя психом — скажи правду.","Когда ты одинок — это не значит, что ты слабый. Это значит, ты достаточно сильный, чтобы ждать то, что ты заслуживаешь.","Изначально тебя все бросают, если ты из-за этого захочешь повеситься, то ты всем покажешь что ты слабый. А если продолжишь это терпеть, то ты всем покажешь что ты сильный, и все захотят подружиться с тобой..."]
         embed = discord.Embed(title="Цитаты, от бота...",description=f"{random.choice(quotes)}")
         await ctx.reply(embed=embed)
+
+    @commands.command(name="card")
+    async def _card(self, ctx: commands.Context):
+        async with ctx.typing():
+            img = Image.new('RGBA', (300, 150), '#232529')
+            url = str(ctx.author.avatar_url)[:-10]
+            r = requests.get(url, stream = True)
+            r = Image.open(io.BytesIO(r.content))
+            r = r.convert('RGBA')
+            r = r.resize((100, 100), Image.ANTIALIAS)
+            img.paste(r, (15, 15, 115, 115))
+            idraw = ImageDraw.Draw(img)
+            name = ctx.author.name
+            headline = ImageFont.truetype('arial.ttf', size = 20)
+            undertext = ImageFont.truetype('arial.ttf', size = 12)
+            idraw.text((145, 15), f'{name}', font=headline)
+            idraw.text((145, 50), f'#{ctx.author.discriminator}', font=undertext)
+            idraw.text((145, 70), f'ID: {ctx.author.id}', font = undertext)
+            idraw.text((200, 135), f'MrWolfBot', font=undertext)
+            img.save('user_card.png')
+            await ctx.reply(file = discord.File(fp = 'user_card.png'))
 
 bot = commands.Bot(command_prefix=config.get_prefix())
 slash = SlashClient(bot)
@@ -577,7 +638,7 @@ def bot_name():
     return bot.user.name
 
 def bot_prefix():
-    return config.get_prefix()  
+    return config.get_prefix()
 
 @bot.event
 async def on_ready():
@@ -586,5 +647,18 @@ async def on_ready():
         await bot.change_presence(status=discord.Status.idle, activity=discord.Activity(type = discord.ActivityType.listening, name=f'mwb!help | {random.choice(status_list)}'))
         await sleep(10)
 
-keep_alive.keep_alive()
+@bot.event
+async def on_command_error(ctx, error):
+    emoji = discord.utils.get(bot.emojis, name='symbol_error')
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.reply(
+            embed=discord.Embed(title=f'{str(emoji)} Ошибка',
+                                description=f'Извини, но у тебя нет прав!',
+                                colour=discord.Color.red()))
+    elif isinstance(error, commands.BotMissingPermissions):
+        await ctx.reply(
+            embed=discord.Embed(title=f'{str(emoji)} Ошибка',
+                                description=f'Извини, но у меня нет прав!',
+                                colour=discord.Color.red()))
+
 bot.run(config.get_code_run())
