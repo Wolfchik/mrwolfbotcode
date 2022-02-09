@@ -1,7 +1,7 @@
 import config
 import discord
 from discord.ext import commands
-from dislash import SlashClient, slash_command, Option, OptionType
+from dislash import SlashClient, slash_command, Option, OptionType, ResponseType
 from typing_extensions import Required
 from PIL import Image, ImageFont, ImageDraw
 import youtube_dl
@@ -16,6 +16,10 @@ import io
 import json
 from asyncio import sleep
 from async_timeout import timeout
+from datebase.datebase import datebase as dt
+
+base = dt()
+base.start()
 
 
 # Silence useless bug reports messages
@@ -173,10 +177,6 @@ class Song:
         return embed
 
     def now_name(self):
-            # title='Сейчас играет',
-            # description='[**{0.source.title}**]({0.source.url})'.format(self),
-            # color=discord.Color.blurple().set_thumbnail(
-            #     url=self.source.thumbnail)
         now = self.source.url
         return now
 
@@ -379,6 +379,8 @@ class Music(commands.Cog):
     @commands.command(name='np', aliases=['now playing', 'playing'])
     async def _now(self, ctx: commands.Context):
         """Увидеть, какая песня играет прямо сейчас"""
+        if not ctx.voice_state.is_playing:
+            return await ctx.reply('Сейчас музыка просто не играет. Можешь включить.')
 
         await ctx.send(embed=ctx.voice_state.current.create_embed())
 
@@ -496,7 +498,9 @@ class Music(commands.Cog):
 
     @commands.command(name="re", aliases=["replay"])
     async def _re(self, ctx: commands.Context):
-        self.current = None
+        if not ctx.voice_state.is_playing:
+            return await ctx.reply('Сейчас музыка не играет,зачем её реплеить? Можете включить.')
+
         msg = await ctx.reply(f'<a:ee98:921363226061598780> **{self.bot.user.name}** думает...')
         try:
             source2 = await YTDLSource.create_source(ctx,
@@ -511,13 +515,6 @@ class Music(commands.Cog):
             ctx.voice_state.skip()
             await msg.edit(content=f'<:succes_title:925401308813471845>')
 
-    @commands.command(name="stop")
-    async def _stop(self, ctx: commands.Context):
-        ctx.voice_state.queue_clear()
-        await ctx.reply('<:succes_title:925401308813471845>')
-
-
-
     @_join.before_invoke
     @_play.before_invoke
     async def ensure_voice_state(self, ctx: commands.Context):
@@ -528,6 +525,149 @@ class Music(commands.Cog):
             if ctx.voice_client.channel != ctx.author.voice.channel:
                 raise commands.CommandError('Ты хочешь чтобы в голосовом канале было два одинаковых ботов?')
 
+    @slash_command(name="join",description="Зайти к тебе в канал")
+    async def _joininslash(self, ctx: commands.Context):
+        await ctx.reply(..., type=5)
+        ctx.voice_state = self.get_voice_state(ctx)
+
+        destination = ctx.author.voice.channel
+        if ctx.voice_state.voice:
+            await ctx.voice_state.voice.move_to(destination)
+            return
+
+        ctx.voice_state.voice = await destination.connect()
+
+    @slash_command(name="play",description="Начать воспроизведение.",options=[Option("search", "А что искать то?", required=True)])
+    async def _playinslash(self, ctx: commands.Context, *, search: str = None):
+            await ctx.reply(..., type=5)
+            ctx.voice_state = self.get_voice_state(ctx)
+
+            if not ctx.voice_state.voice:
+                return await ctx.reply("Сперва, пожалуйста напиши /join")
+
+            try:
+                source = await YTDLSource.create_source(ctx,
+                                                        search,
+                                                        loop=self.bot.loop)
+            except YTDLError as e:
+                await ctx.send('Ошибка: {}'.format(str(e)))
+            else:
+                song = Song(source)
+
+                await ctx.voice_state.songs.put(song)
+                # row_of_buttons = ActionRow(
+                #     Button(style=ButtonStyle.red, label="Replay", custom_id="re"))
+                await ctx.reply(f'Добавлено {source}')
+
+    @slash_command(name="replay",description="Начать сейчас играющее воспроизведение заново")
+    async def _reinslash(self, ctx: commands.Context):
+        ctx.voice_state = self.get_voice_state(ctx)
+        await ctx.reply(..., type=5)
+        
+        if not ctx.voice_state.is_playing:
+            return await ctx.reply('Сейчас музыка не играет,зачем её реплеить? Можете включить.')
+
+        try:
+            source2 = await YTDLSource.create_source(ctx,
+                                                    ctx.voice_state.current.now_name(),
+                                                    loop=self.bot.loop)
+        except YTDLError as e:
+            await ctx.send('Ошибка: {}'.format(str(e)))
+        else:
+            song2 = Song(source2)
+
+            await ctx.voice_state.songs.put(song2)
+            ctx.voice_state.skip()
+            await ctx.reply(f'<:succes_title:925401308813471845>')
+
+    @slash_command(name="remove", description="Удалить песню по индексу.",options=[Option("index", "Укажите Индекс", required=True)])
+    async def _removeinslash(self, ctx: commands.Context, index: int = None):
+        ctx.voice_state = self.get_voice_state(ctx)
+        await ctx.reply(..., type = 5)
+
+        if len(ctx.voice_state.songs) == 0:
+            return await ctx.reply('В очереди нет треков. Можете добавить.')
+
+        ctx.voice_state.songs.remove(index - 1)
+        await ctx.reply('✅')
+
+    @slash_command(name="queue", description="Очередь")
+    async def _queueinslash(self, ctx: commands.Context, *, page: int = 1):
+        ctx.voice_state = self.get_voice_state(ctx)
+        await ctx.reply(..., type = 5)
+
+        if len(ctx.voice_state.songs) == 0:
+            return await ctx.reply('В очереди нет треков. Можете добавить.')
+
+        items_per_page = 10
+        pages = math.ceil(len(ctx.voice_state.songs) / items_per_page)
+
+        start = (page - 1) * items_per_page
+        end = start + items_per_page
+
+        queue = ''
+        for i, song in enumerate(ctx.voice_state.songs[start:end], start=start):
+            queue += '`{0}.` [**{1.source.title}**]({1.source.url})\n'.format(i + 1, song)
+
+        embed = (discord.Embed(description='**{} tracks:**\n\n{}'.format(len(ctx.voice_state.songs), queue))
+                 .set_footer(text='Viewing page {}/{}'.format(page, pages)))
+        await ctx.reply(embed=embed)
+
+    @slash_command(name='leave')
+    async def _leaveinslash(self, ctx: commands.Context):
+        ctx.voice_state = self.get_voice_state(ctx)
+        await ctx.reply(..., type=5)
+
+        if not ctx.voice_state.voice:
+            return await ctx.send('Бот и так не подключен. Зачем его кикать?')
+
+        await ctx.voice_state.stop()
+        await ctx.reply('Пока!👋')
+        del self.voice_states[ctx.guild.id]
+
+    @slash_command(name='volume',description="Изменить громкость",options=[Option("volume","Укажите значение",required=True)])
+    async def _volumeinslash(self, ctx: commands.Context, *, volume: int = None):
+        ctx.voice_state = self.get_voice_state(ctx)
+        await ctx.reply(..., type=5)
+
+        if not ctx.voice_state.is_playing:
+            return await ctx.reply('Сейчас музыка не играет. Можете включить.')
+
+        if 0 > volume > 100:
+            return await ctx.reply('Volume must be between 0 and 100')
+
+        ctx.voice_state.volume = volume / 100
+        await ctx.reply('Громкость изменена на {}%'.format(volume))
+
+    @slash_command(name='np',description="Что сейчас играет?")
+    async def _nowinslash(self, ctx: commands.Context):
+        ctx.voice_state = self.get_voice_state(ctx)
+        if not ctx.voice_state.is_playing:
+            return await ctx.reply('Сейчас музыка просто не играет. Можешь включить.')
+
+        await ctx.reply(..., type=5)
+
+        await ctx.reply(embed=ctx.voice_state.current.create_embed())
+
+    @slash_command(name='skip',description="Включить следующее!")
+    async def _skipinslash(self, ctx: commands.Context):
+        ctx.voice_state = self.get_voice_state(ctx)
+        await ctx.reply(..., type=5)
+
+        if not ctx.voice_state.is_playing:
+            return await ctx.reply('Сейчас музыка не играет,зачем её пропускать? Можете включить.')
+
+        if not ctx.voice_state.voice:
+            await ctx.reply("Пожалуйста, введи /join")
+
+        if (ctx.voice_state.current.requester):
+            await ctx.reply('⏭')
+            ctx.voice_state.skip()
+
+    @slash_command(name="test",description="Проверка кое чего ,_,")
+    async def _testinslash(self, ctx: commands.Context):
+        await ctx.reply(title="Я не знаю чё тут произойдёт", custom_id=2, components=None, type=9)
+
 
 class Main(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -535,11 +675,12 @@ class Main(commands.Cog):
 
     @commands.command(name="help")
     async def _help(self, ctx: commands.Context):
-        await ctx.reply(embed=discord.Embed(title="Список моих команд ", description="Всё разложено по полочкам :)\n**🎵Музыка**\n`mwb!play <search>` - Начать воспроизведение\n`mwb!skip` - Пропустить\n`mwb!queue` - Позырить очередь\n`mwb!leave` - Остановить музыку, и выйти\n`mwb!join` - Зайти к вам в канал\n`mwb!re` - Начать воспроизведение заново\n`mwb!remove <index>` - Удалить опред песню\n`mwb!np` - Посмотреть, что сейчас играет\n`mwb!volume <value>` - Изменить громкость, после измены не забудьте включить воспроизведение заново\n**🥇Модерация**\n`mwb!clear <amount>` - Очистить сообщения\n**📍 Утилиты**\n`mwb!quote` - Бот выдаст рандомную цитату\n`mwb!card` - Увидеть свою карточку"))
+        await ctx.reply(embed=discord.Embed(title="Список моих команд ", description="Всё разложено по полочкам :)\n**🎵Музыка**\n`mwb!play <search>` - Начать воспроизведение\n`mwb!skip` - Пропустить\n`mwb!queue` - Позырить очередь\n`mwb!leave` - Остановить музыку, и выйти\n`mwb!join` - Зайти к вам в канал\n`mwb!re` - Начать воспроизведение заново\n`mwb!remove <index>` - Удалить опред песню\n`mwb!np` - Посмотреть, что сейчас играет\n`mwb!volume <value>` - Изменить громкость, после измены не забудьте включить воспроизведение заново\n**🥇Модерация**\n`mwb!clear <amount>` - Очистить сообщения\n`mwb!mute` - Замьютить кого то\n`mwb!unmute` - Размьютить кого то\n**📍 Утилиты**\n`mwb!quote` - Бот выдаст рандомную цитату\n`mwb!card` - Увидеть свою карточку"))
 
 class Moderation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.base = dt
 
     @commands.command(name="clear")
     @commands.bot_has_permissions(manage_messages=True)
@@ -554,7 +695,8 @@ class Moderation(commands.Cog):
     @commands.command(name="mute")
     @commands.has_permissions(manage_messages=True)
     @commands.bot_has_permissions(manage_roles=True)
-    async def _mute(self, ctx: commands.Context, member: discord.Member = None):
+    @commands.bot_has_permissions(manage_channels=True)
+    async def _mute(self, ctx: commands.Context, member: discord.Member = None, reason="Не указана."):
         if member == None:
             await ctx.reply('Использование команды:\n`mwb!mute <@member>`')
             return
@@ -573,8 +715,10 @@ class Moderation(commands.Cog):
         embed = discord.Embed(
             title=f"Успешно!",
             description=f"{member.mention} теперь находиться в мьюте! ")
-        await ctx.send(embed=embed)
+        embed.add_field(name="Причина", value=reason)
         await member.add_roles(mutedRole)
+        await ctx.send(embed=embed)
+        await member.send(f"Вы получили мьют на сервере **{guild.name}** по причине **{reason}**\n Press <:f3472ce706ad9f4bed0da39a7f21b55a:939828686767681627> тебе!")
 
 
     @commands.command(name="unmute")
@@ -591,6 +735,28 @@ class Moderation(commands.Cog):
 
         await member.remove_roles(mutedRole)
         await ctx.reply(embed=embed)
+        await member.send(f"Хочешь крутую новость?\nТебя размьютили на сервере {guild.name}! <:b654094678543279e1ff53713c1d65e7:939828694577471538>")
+
+    @commands.command(name="warn")
+    async def _warn(self, ctx: commands.Context, member: discord.Member, guild: discord.Guild = None ):
+        guild = ctx.guild if not guild else guild
+
+        self.base.guild = guild.id
+        self.base.user = member.id
+        self.base.warn()
+
+        await ctx.reply(f"Хорошо, варн успешно выдан пользователю {member.mention}:thumbsup: ")
+
+    @commands.command(name="warns")
+    async def _warns(self,ctx: commands.Context):
+        self.base.warns_list()
+
+        embd = discord.Embed(title = "Список варнов на этом сервере.")
+        embd.add_field(name="Айди гильдии:", value = self.base.search1)
+        embd.add_field(name="Айди юзера:",value=self.base.search2)
+        embd.add_field(name="Варны:",value=self.base.search3)
+
+        await ctx.reply(embed=embd)
 
 class Utilits(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -604,6 +770,21 @@ class Utilits(commands.Cog):
 
     @commands.command(name="card")
     async def _card(self, ctx: commands.Context):
+        t = ctx.message.author.status
+        if t == discord.Status.online:
+            d = "🟢 В сети"
+
+        t = ctx.message.author.status
+        if t == discord.Status.offline:
+            d = "⚪ Не в сети"
+
+        t = ctx.message.author.status
+        if t == discord.Status.idle:
+            d = "🟠 Не активен"
+
+        t = ctx.message.author.status
+        if t == discord.Status.dnd:
+            d = "🔴 Не беспокоить"
         async with ctx.typing():
             img = Image.new('RGBA', (300, 150), '#232529')
             url = str(ctx.author.avatar_url)[:-10]
@@ -619,11 +800,12 @@ class Utilits(commands.Cog):
             idraw.text((145, 15), f'{name}', font=headline)
             idraw.text((145, 50), f'#{ctx.author.discriminator}', font=undertext)
             idraw.text((145, 70), f'ID: {ctx.author.id}', font = undertext)
-            idraw.text((200, 135), f'MrWolfBot', font=undertext)
+            idraw.text((145, 90), f'Статус: {d}', font = undertext)
+            idraw.text((220, 135), f'MrWolfBot', font=undertext)
             img.save('user_card.png')
             await ctx.reply(file = discord.File(fp = 'user_card.png'))
 
-bot = commands.Bot(command_prefix=config.get_prefix())
+bot = commands.Bot(command_prefix=config.get_prefix(), intents=discord.Intents.all())
 slash = SlashClient(bot)
 bot.remove_command('help')
 bot.add_cog(Main(bot))
