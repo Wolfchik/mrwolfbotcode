@@ -1,0 +1,7 @@
+SQLite format 3@  .K�
+}}��StabledatebasedatebaseCREATE TABLE datebase (
+            guild INT,
+            user INT,
+            warn INT
+        )
+

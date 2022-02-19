@@ -1,0 +1,9 @@
+    <div class="infothree">
+      <a href="https://www.youtube.com/channel/UC6bvplAlyCdbb1PgaMY8Mug" target="_blank">Ютубчик</a>
+      <br>
+      <a href="https://github.com/Wolfchik" target="_blank">Git-Hub</a>
+      <br>
+      <a href="https://discord.com/api/oauth2/authorize?client_id=933819622438866975&permissions=8&scope=bot%20applications.commands" target="_blank">Ссылка на добавление моего бота</a>
+      <br>
+      <a href="https://vk.com/wwolf0" target="_blank">VK</a>
+    </div>
